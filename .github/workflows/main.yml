@@ -1,4 +1,4 @@
-name: Mac-VNC-Bypass
+name: Mac-VNC-NewUser
 
 on: [push, workflow_dispatch]
 
@@ -11,12 +11,22 @@ jobs:
           brew install ngrok
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Force Enable Screen Sharing (VNC)
+      - name: Create New Admin & Enable VNC
         run: |
-          # 1. THE BYPASS: Clear the password requirement and set a new one
-          # We use dscl to delete the password attribute first to avoid the 'old password' prompt
-          sudo dscl . -delete /Users/runner Password
-          sudo dscl . -passwd /Users/runner "P@ssw0rd!"
+          # 1. Create a new admin user called 'admin'
+          # This avoids the 'old password' error on the default 'runner' account
+          sudo dscl . -create /Users/admin
+          sudo dscl . -create /Users/admin UserShell /bin/zsh
+          sudo dscl . -create /Users/admin RealName "Admin"
+          sudo dscl . -create /Users/admin UniqueID 501
+          sudo dscl . -create /Users/admin PrimaryGroupID 20
+          sudo dscl . -create /Users/admin NFSHomeDirectory /Users/admin
+          sudo dscl . -passwd /Users/admin "P@ssw0rd!"
+          sudo dscl . -append /Groups/admin GroupMembership admin
+          sudo dscl . -append /Groups/procmod GroupMembership admin
+          sudo dscl . -append /Groups/procview GroupMembership admin
+          sudo mkdir -p /Users/admin
+          sudo chown admin:staff /Users/admin
 
           # 2. Enable VNC with Legacy Support
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
@@ -25,11 +35,11 @@ jobs:
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. Grant full permissions to the runner user
+          # 3. Grant full permissions specifically to our new 'admin' user
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -configure -users runner -access -on -privs -all
+          -configure -users admin -access -on -privs -all
 
-          # 4. CRITICAL: Security Bypass for RealVNC
+          # 4. Security Bypass for RealVNC
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
           
           sleep 5
@@ -43,14 +53,9 @@ jobs:
         run: |
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
-            echo "ERROR: Tunnel failed. Checking logs..."
-            cat ngrok.log
-          else
-            echo "Your VNC Address: $URL"
-            echo "Username: runner"
-            echo "Password: P@ssw0rd!"
-          fi
+          echo "Your VNC Address: $URL"
+          echo "Username: admin"
+          echo "Password: P@ssw0rd!"
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
