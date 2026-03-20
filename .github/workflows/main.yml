@@ -1,7 +1,6 @@
-name: macOS-Cloud-PC
+name: Mac-VNC
 
-on: 
-  workflow_dispatch: # Allows you to start it manually from the Actions tab
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -12,51 +11,41 @@ jobs:
           brew install ngrok
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Create VNC User & Enable Desktop
+      - name: Enable Screen Sharing (VNC)
         run: |
-          # 1. Create a fresh admin user 'vncuser' to bypass 'old password' prompts
-          sudo dscl . -create /Users/vncuser
-          sudo dscl . -create /Users/vncuser UserShell /bin/zsh
-          sudo dscl . -create /Users/vncuser RealName "VNC User"
-          sudo dscl . -create /Users/vncuser UniqueID 601
-          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
-          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          sudo dscl . -passwd /Users/vncuser "P@ssw0rd!"
-          sudo dscl . -append /Groups/admin GroupMembership vncuser
-          sudo mkdir -p /Users/vncuser
-          sudo chown vncuser:staff /Users/vncuser
-
-          # 2. Enable Apple's Native Screen Sharing (VNC)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on \
-          -clientopts -setvnclegacy -vnclegacy yes \
-          -clientopts -setvncpw -vncpw "P@ssw0rd!" \
-          -restart -agent -privs -all
-
-          # 3. Grant full remote permissions to the new user
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -configure -users vncuser -access -on -privs -all
+          # Use sysadminctl to set the password (bypasses the 'old password' prompt)
+          sudo sysadminctl -adminUser runner -adminPassword "" -password "P@ssw0rd!"
           
-          # 4. Prevent the system from sleeping
-          sudo systemsetup -setdisplaysleep Off > /dev/null 2>&1 || true
+          # Enable Screen Sharing in the system overrides
+          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          
+          # Load the Screen Sharing daemon
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # Give the OS a moment to start the service
+          sleep 5
 
       - name: Start ngrok Tunnel
         run: |
-          # Tunneling the VNC port 5900
+          # Start ngrok in the background and log output to a file
           ngrok tcp 5900 --log=stdout > ngrok.log &
           sleep 10
 
-      - name: Get Connection Details
+      - name: Get VNC Address
         run: |
+          # Fetch the public URL from the local ngrok API
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          echo "Your Cloud Mac is Ready!"
-          echo "VNC Address: $URL"
-          echo "Username: vncuser"
-          echo "Password: P@ssw0rd!"
+          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
+            echo "Error: ngrok tunnel failed to start. Check your Auth Token."
+          else
+            echo "Your VNC Address is: $URL"
+            echo "Username: runner"
+            echo "Password: P@ssw0rd!"
+          fi
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
         run: |
-          # Keeps the session active for up to 6 hours
+          # Prevents the GitHub Action from finishing and closing the connection
           while true; do sleep 60; done
