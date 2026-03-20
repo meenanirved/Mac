@@ -1,4 +1,4 @@
-name: Mac-VNC-Final
+name: Mac-VNC-Final-v2
 
 on: [push, workflow_dispatch]
 
@@ -13,21 +13,26 @@ jobs:
 
       - name: Force Enable Screen Sharing (VNC)
         run: |
-          # 1. Reset 'runner' password using the most basic command
-          echo "P@ssw0rd!" | sudo passwd --stdin runner || sudo dscl . -passwd /Users/runner "P@ssw0rd!"
-          
-          # 2. Enable VNC with Legacy Password Support
+          # 1. THE ULTIMATE PASSWORD RESET (No-fail method)
+          # This forces the password without asking for the old one
+          sudo dscl . -passwd /Users/runner "P@ssw0rd!"
+
+          # 2. Enable VNC with Legacy Support
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on \
           -clientopts -setvnclegacy -vnclegacy yes \
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. THE FIX for "Authentication Error": Force VNC to allow any client
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCPassword -data $(echo "P@ssw0rd!" | perl -we 'print pack "H*", "1738515a454d3261"')
+          # 3. FORCE VNC LOGIN PERMISSIONS
+          # This tells macOS to allow the 'runner' user to log in remotely
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -configure -users runner -access -on -privs -all
 
-          # Give the system time to apply
+          # 4. CRITICAL FIX FOR AUTHENTICATION ERROR
+          # This tells the VNC server NOT to require a security upgrade (Legacy Mode)
+          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
+          
           sleep 5
 
       - name: Start ngrok Tunnel
