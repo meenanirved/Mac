@@ -1,4 +1,4 @@
-name: Mac-VNC-UniqueUser
+name: Mac-RDP
 
 on: [push, workflow_dispatch]
 
@@ -11,51 +11,53 @@ jobs:
           brew install ngrok
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Create VNC User & Enable Screen Sharing
+      - name: Install XRDP (RDP Server)
         run: |
-          # 1. Create a unique user 'vncuser'
-          # We delete it first to ensure a clean start if re-running
-          sudo dscl . -delete /Users/vncuser || true
-          
-          sudo dscl . -create /Users/vncuser
-          sudo dscl . -create /Users/vncuser UserShell /bin/zsh
-          sudo dscl . -create /Users/vncuser RealName "VNC User"
-          sudo dscl . -create /Users/vncuser UniqueID 601
-          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
-          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          sudo dscl . -passwd /Users/vncuser "P@ssw0rd!"
-          sudo dscl . -append /Groups/admin GroupMembership vncuser
-          sudo mkdir -p /Users/vncuser
-          sudo chown vncuser:staff /Users/vncuser
+          # Install xrdp and the XQuartz window system
+          brew install --cask xquartz
+          brew install xrdp
 
-          # 2. Enable VNC with Legacy Support
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on \
-          -clientopts -setvnclegacy -vnclegacy yes \
-          -clientopts -setvncpw -vncpw "P@ssw0rd!" \
-          -restart -agent -privs -all
+      - name: Create RDP User
+        run: |
+          # Create a fresh user to avoid 'old password' permission issues
+          sudo dscl . -delete /Users/rdpuser || true
+          sudo dscl . -create /Users/rdpuser
+          sudo dscl . -create /Users/rdpuser UserShell /bin/zsh
+          sudo dscl . -create /Users/rdpuser RealName "RDP User"
+          sudo dscl . -create /Users/rdpuser UniqueID 701
+          sudo dscl . -create /Users/rdpuser PrimaryGroupID 20
+          sudo dscl . -create /Users/rdpuser NFSHomeDirectory /Users/rdpuser
+          sudo dscl . -passwd /Users/rdpuser "P@ssw0rd!"
+          sudo dscl . -append /Groups/admin GroupMembership rdpuser
+          sudo mkdir -p /Users/rdpuser
+          sudo chown rdpuser:staff /Users/rdpuser
 
-          # 3. Grant full permissions to 'vncuser'
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -configure -users vncuser -access -on -privs -all
-
-          # 4. Security Bypass for RealVNC
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
-          
+      - name: Start RDP Service
+        run: |
+          # Start the xrdp server on the default RDP port 3389
+          sudo xrdp
+          sudo xrdp-sesman
           sleep 5
 
       - name: Start ngrok Tunnel
         run: |
-          ngrok tcp 5900 --log=stdout > ngrok.log &
+          # Tunnel the RDP port 3389
+          ngrok tcp 3389 --log=stdout > ngrok.log &
           sleep 10
 
-      - name: Get VNC Address
+      - name: Get RDP Address
         run: |
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          echo "Your VNC Address: $URL"
-          echo "Username: vncuser"
-          echo "Password: P@ssw0rd!"
+          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
+            echo "ERROR: ngrok failed to start. Check your Token."
+          else
+            # Remove the 'tcp://' prefix for standard RDP clients
+            CLEAN_URL=$(echo $URL | sed 's/tcp:\/\///')
+            echo "Your RDP Address: $CLEAN_URL"
+            echo "Username: rdpuser"
+            echo "Password: P@ssw0rd!"
+          fi
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
