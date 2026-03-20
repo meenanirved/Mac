@@ -1,4 +1,4 @@
-name: Mac-VNC-NewUser
+name: Mac-VNC-UniqueUser
 
 on: [push, workflow_dispatch]
 
@@ -11,22 +11,22 @@ jobs:
           brew install ngrok
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Create New Admin & Enable VNC
+      - name: Create VNC User & Enable Screen Sharing
         run: |
-          # 1. Create a new admin user called 'admin'
-          # This avoids the 'old password' error on the default 'runner' account
-          sudo dscl . -create /Users/admin
-          sudo dscl . -create /Users/admin UserShell /bin/zsh
-          sudo dscl . -create /Users/admin RealName "Admin"
-          sudo dscl . -create /Users/admin UniqueID 501
-          sudo dscl . -create /Users/admin PrimaryGroupID 20
-          sudo dscl . -create /Users/admin NFSHomeDirectory /Users/admin
-          sudo dscl . -passwd /Users/admin "P@ssw0rd!"
-          sudo dscl . -append /Groups/admin GroupMembership admin
-          sudo dscl . -append /Groups/procmod GroupMembership admin
-          sudo dscl . -append /Groups/procview GroupMembership admin
-          sudo mkdir -p /Users/admin
-          sudo chown admin:staff /Users/admin
+          # 1. Create a unique user 'vncuser'
+          # We delete it first to ensure a clean start if re-running
+          sudo dscl . -delete /Users/vncuser || true
+          
+          sudo dscl . -create /Users/vncuser
+          sudo dscl . -create /Users/vncuser UserShell /bin/zsh
+          sudo dscl . -create /Users/vncuser RealName "VNC User"
+          sudo dscl . -create /Users/vncuser UniqueID 601
+          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
+          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
+          sudo dscl . -passwd /Users/vncuser "P@ssw0rd!"
+          sudo dscl . -append /Groups/admin GroupMembership vncuser
+          sudo mkdir -p /Users/vncuser
+          sudo chown vncuser:staff /Users/vncuser
 
           # 2. Enable VNC with Legacy Support
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
@@ -35,9 +35,9 @@ jobs:
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. Grant full permissions specifically to our new 'admin' user
+          # 3. Grant full permissions to 'vncuser'
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -configure -users admin -access -on -privs -all
+          -configure -users vncuser -access -on -privs -all
 
           # 4. Security Bypass for RealVNC
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
@@ -54,7 +54,7 @@ jobs:
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
           echo "Your VNC Address: $URL"
-          echo "Username: admin"
+          echo "Username: vncuser"
           echo "Password: P@ssw0rd!"
           echo "------------------------------------------------------------"
 
