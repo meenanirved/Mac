@@ -13,16 +13,21 @@ jobs:
 
       - name: Enable Screen Sharing (VNC)
         run: |
-          # Set a password for the 'runner' user
-          # It is highly recommended to use a secret: ${{ secrets.VNC_PASSWORD }}
-          sudo dscl . -passwd /Users/runner "P@ssw0rd!"
+          # Use sysadminctl to set the password (bypasses the 'old password' prompt)
+          sudo sysadminctl -adminUser runner -adminPassword "" -password "P@ssw0rd!"
           
-          # Activate Screen Sharing
+          # Enable Screen Sharing in the system overrides
+          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          
+          # Load the Screen Sharing daemon
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # Give the OS a moment to start the service
+          sleep 5
 
       - name: Start ngrok Tunnel
         run: |
-          # VNC usually runs on port 5900
+          # Start ngrok in the background and log output to a file
           ngrok tcp 5900 --log=stdout > ngrok.log &
           sleep 10
 
@@ -31,12 +36,16 @@ jobs:
           # Fetch the public URL from the local ngrok API
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          echo "Your VNC Address is: $URL"
-          echo "Username: runner"
-          echo "Password: P@ssw0rd!"
+          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
+            echo "Error: ngrok tunnel failed to start. Check your Auth Token."
+          else
+            echo "Your VNC Address is: $URL"
+            echo "Username: runner"
+            echo "Password: P@ssw0rd!"
+          fi
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
         run: |
-          # Keeps the job running so the connection doesn't close
+          # Prevents the GitHub Action from finishing and closing the connection
           while true; do sleep 60; done
