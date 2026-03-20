@@ -1,24 +1,42 @@
-name: MacRDP
-on: 
-  workflow_dispatch:
+name: Mac-VNC
+
+on: [push, workflow_dispatch]
+
 jobs:
   build:
-    name: MacRDP
     runs-on: macos-latest
-    
-    steps:                 
-    - name: Enabling Remote Access
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-      run: |
-          curl -s -o start.sh -L "https://raw.githubusercontent.com/JohnnyNetsec/github-vm/main/mac/start.sh"
-          chmod +x start.sh
-          bash start.sh "$NGROK_AUTH_TOKEN"
+    steps:
+      - name: Install & Configure ngrok
+        run: |
+          brew install ngrok
+          ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Enable Screen Sharing (VNC)
+        run: |
+          # Set a password for the 'runner' user
+          # It is highly recommended to use a secret: ${{ secrets.VNC_PASSWORD }}
+          sudo dscl . -passwd /Users/runner "P@ssw0rd!"
           
-    - name: Log In Details To VNC Server
-      run: |
-         chmod +x login.sh
-         bash login.sh
-         
-    - name: MacOS System running...
-      uses: mxschmitt/action-tmate@v2
+          # Activate Screen Sharing
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+
+      - name: Start ngrok Tunnel
+        run: |
+          # VNC usually runs on port 5900
+          ngrok tcp 5900 --log=stdout > ngrok.log &
+          sleep 10
+
+      - name: Get VNC Address
+        run: |
+          # Fetch the public URL from the local ngrok API
+          URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "------------------------------------------------------------"
+          echo "Your VNC Address is: $URL"
+          echo "Username: runner"
+          echo "Password: P@ssw0rd!"
+          echo "------------------------------------------------------------"
+
+      - name: Keep Alive
+        run: |
+          # Keeps the job running so the connection doesn't close
+          while true; do sleep 60; done
