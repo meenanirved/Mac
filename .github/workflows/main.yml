@@ -1,4 +1,4 @@
-name: Mac-VNC-Fix
+name: Mac-VNC-Final
 
 on: [push, workflow_dispatch]
 
@@ -13,49 +13,37 @@ jobs:
 
       - name: Force Enable Screen Sharing (VNC)
         run: |
-          # 1. Set the system password for the runner user
-          sudo sysadminctl -adminUser runner -adminPassword "" -password "P@ssw0rd!"
+          # 1. Reset 'runner' password using the most basic command
+          echo "P@ssw0rd!" | sudo passwd --stdin runner || sudo dscl . -passwd /Users/runner "P@ssw0rd!"
           
-          # 2. Use kickstart to enable VNC and set the VNC-specific password
-          # This explicitly enables 'Legacy' mode which RealVNC needs.
+          # 2. Enable VNC with Legacy Password Support
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on \
           -clientopts -setvnclegacy -vnclegacy yes \
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. FIX: Force the VNC Settings to accept the password configuration
-          # This prevents the "Authentication Error" by disabling the Security Upgrade requirement
+          # 3. THE FIX for "Authentication Error": Force VNC to allow any client
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt SecurityConfiguration -dict PrefsCauseSecurityUpgrade -bool false
-          
-          # Give the services a moment to restart
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCPassword -data $(echo "P@ssw0rd!" | perl -we 'print pack "H*", "1738515a454d3261"')
+
+          # Give the system time to apply
           sleep 5
 
       - name: Start ngrok Tunnel
         run: |
-          # Start ngrok in background and log to file
           ngrok tcp 5900 --log=stdout > ngrok.log &
           sleep 10
 
       - name: Get VNC Address
         run: |
-          # Fetch the public URL from the ngrok API
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
-            echo "ERROR: ngrok failed to start. Check your NGROK_AUTH_TOKEN secret."
-          else
-            echo "Your VNC Address is: $URL"
-            echo "Username: runner"
-            echo "Password: P@ssw0rd!"
-            echo "------------------------------------------------------------"
-            echo "IN REALVNC VIEWER:"
-            echo "1. Go to Properties -> General"
-            echo "2. Set Encryption to 'Let VNC Server Choose' or 'Prefer On'"
-            echo "------------------------------------------------------------"
-          fi
+          echo "Your VNC Address: $URL"
+          echo "Username: runner"
+          echo "Password: P@ssw0rd!"
+          echo "------------------------------------------------------------"
 
       - name: Keep Alive
         run: |
-          # Keeps the runner alive for up to 6 hours
           while true; do sleep 60; done
