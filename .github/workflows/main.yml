@@ -1,4 +1,4 @@
-name: Mac-VNC-Stable
+name: Mac-VNC-Final-NoCrash
 
 on: [push, workflow_dispatch]
 
@@ -13,7 +13,7 @@ jobs:
 
       - name: Setup VNC User & Screen
         run: |
-          # 1. Create a fresh user to avoid password errors
+          # 1. Create a fresh user
           sudo dscl . -delete /Users/vncuser || true
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/zsh
@@ -33,13 +33,12 @@ jobs:
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. Give 'vncuser' full remote access
+          # 3. Grant full permissions to 'vncuser'
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -configure -users vncuser -access -on -privs -all
-
-          # 4. Force WindowServer to refresh (wakes up the screen)
-          sudo killall -HUP WindowServer
-          sleep 10
+          
+          # 4. Prevent sleep without crashing the session
+          sudo systemsetup -setdisplaysleep Off > /dev/null 2>&1 || true
 
       - name: Start ngrok Tunnel
         run: |
@@ -50,9 +49,13 @@ jobs:
         run: |
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          echo "Your VNC Address: $URL"
-          echo "Username: vncuser"
-          echo "Password: P@ssw0rd!"
+          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
+            echo "ERROR: Tunnel failed. Check ngrok logs."
+          else
+            echo "Your VNC Address: $URL"
+            echo "Username: vncuser"
+            echo "Password: P@ssw0rd!"
+          fi
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
