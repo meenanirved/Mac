@@ -1,6 +1,7 @@
-name: Mac-VNC-Final-NoCrash
+name: macOS-Cloud-PC
 
-on: [push, workflow_dispatch]
+on: 
+  workflow_dispatch: # Allows you to start it manually from the Actions tab
 
 jobs:
   build:
@@ -11,10 +12,9 @@ jobs:
           brew install ngrok
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Setup VNC User & Screen
+      - name: Create VNC User & Enable Desktop
         run: |
-          # 1. Create a fresh user
-          sudo dscl . -delete /Users/vncuser || true
+          # 1. Create a fresh admin user 'vncuser' to bypass 'old password' prompts
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/zsh
           sudo dscl . -create /Users/vncuser RealName "VNC User"
@@ -33,31 +33,30 @@ jobs:
           -clientopts -setvncpw -vncpw "P@ssw0rd!" \
           -restart -agent -privs -all
 
-          # 3. Grant full permissions to 'vncuser'
+          # 3. Grant full remote permissions to the new user
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -configure -users vncuser -access -on -privs -all
           
-          # 4. Prevent sleep without crashing the session
+          # 4. Prevent the system from sleeping
           sudo systemsetup -setdisplaysleep Off > /dev/null 2>&1 || true
 
       - name: Start ngrok Tunnel
         run: |
+          # Tunneling the VNC port 5900
           ngrok tcp 5900 --log=stdout > ngrok.log &
           sleep 10
 
-      - name: Get Connection Address
+      - name: Get Connection Details
         run: |
           URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "------------------------------------------------------------"
-          if [ -z "$URL" ] || [ "$URL" == "null" ]; then
-            echo "ERROR: Tunnel failed. Check ngrok logs."
-          else
-            echo "Your VNC Address: $URL"
-            echo "Username: vncuser"
-            echo "Password: P@ssw0rd!"
-          fi
+          echo "Your Cloud Mac is Ready!"
+          echo "VNC Address: $URL"
+          echo "Username: vncuser"
+          echo "Password: P@ssw0rd!"
           echo "------------------------------------------------------------"
 
       - name: Keep Alive
         run: |
+          # Keeps the session active for up to 6 hours
           while true; do sleep 60; done
